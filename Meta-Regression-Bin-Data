@@ -1,0 +1,60 @@
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+
+# 1. Data preparation
+data = {
+    'Study': ['Laz', 'Cost', 'Laz', 'Bour', 'Laz', 'Nom', 'Teix', 'Mas', 'Pis', 'Bour', 'Mos', 'Azh', 'Laz', 'Vil', 'Gam'],
+    'Year': [2004, 2005, 2007, 2011, 2011, 2014, 2014, 2014, 2015, 2015, 2020, 2020, 2021, 2021, 2024],
+    'Events_Treated': [18, 5, 12, 13, 12, 9, 4, 34, 11, 48, 27, 17, 61, 2, 26],
+    'Total_Treated': [31, 31, 26, 114, 25, 43, 113, 148, 55, 283, 55, 63, 612, 46, 10],
+    'Events_Control': [0, 6, 1, 5, 4, 7, 6, 136, 0, 39, 20, 21, 417, 1, 4],
+    'Total_Control': [26, 55, 20, 164, 24, 47, 204, 541, 18, 314, 95, 77, 6727, 99, 66]
+}
+
+df = pd.DataFrame(data)
+
+# 2. Calculating main metrics
+df['Population'] = df['Total_Treated'] + df['Total_Control']
+df['Events_Control_Adj'] = np.where(df['Events_Control'] == 0, 0.5, df['Events_Control'])
+
+# Calculating OR and log(OR)
+df['OR'] = (df['Events_Treated'] * df['Total_Control']) / (df['Events_Control_Adj'] * df['Total_Treated'])
+df['logOR'] = np.log(df['OR'])
+
+# Standard error of log(OR)
+df['SE_logOR'] = np.sqrt(1/df['Events_Treated'] + 
+                 1/df['Events_Control_Adj'] + 
+                 1/df['Total_Treated'] + 
+                 1/df['Total_Control'])
+
+# 3. Calculating Q-statistic (corrected line)
+weights = 1 / df['SE_logOR']**2
+mean_logOR = np.average(df['logOR'], weights=weights)
+Q = np.sum(weights * (df['logOR'] - mean_logOR)**2)  # All brackets closed
+
+# 4. Calculating tau² (between-study variance)
+df_studies = len(df) - 1
+C = np.sum(weights) - np.sum(weights**2)/np.sum(weights)
+tau_squared = max(0, (Q - df_studies)/C)
+
+# 5. Weights for random effects model
+df['weights_RE'] = 1/(df['SE_logOR']**2 + tau_squared)
+
+# 6. Meta-regression
+X = sm.add_constant(df[['Year', 'Population']])  # Adding constant
+model = sm.WLS(df['logOR'], X, weights=df['weights_RE'])
+results = model.fit()
+
+# 7. Displaying results
+print("Meta-regression results:")
+print(results.summary())
+
+print("\nExponentiated coefficients:")
+print(f"Intercept: {np.exp(results.params['const']):.4f}")
+print(f"Year: {np.exp(results.params['Year']):.4f}")
+print(f"Population: {np.exp(results.params['Population']):.4f}")
+
+print(f"\nAdditional parameters:")
+print(f"Tau²: {tau_squared:.4f}")
+print(f"Q = {Q:.2f} (df = {df_studies})")
