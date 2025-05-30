@@ -123,26 +123,26 @@ table = ax_table.table(cellText=cell_text,
                      loc='center',
                      edges='open')
 table.auto_set_font_size(False)
-table.set_fontsize(18)  # Увеличили размер шрифта
+table.set_fontsize(18)  # Increased the font size
 
 # Table formatting
 for key, cell in table.get_celld().items():
-    cell.set_height(0.06)  # Увеличили высоту строк
-    if key[0] == 0:  # Заголовки
+    cell.set_height(0.06)  # Increased the height of the lines
+    if key[0] == 0:  # Headings
         cell.set_text_props(weight='bold', size=18)
-    else:  # Данные
-        cell.set_text_props(weight='bold')  # Весь текст жирный
+    else:  # Data
+        cell.set_text_props(weight='bold')  # All text is bold
 
 # Customize the graph (the order corresponds to the table - the earliest on top)
-y_pos = np.arange(n_studies)  # Позиции снизу вверх (0 - нижняя строка)
+y_pos = np.arange(n_studies)  # Positions from bottom to top (0 - bottom row)
 main_color = '#2b83ba'
 diamond_color = '#d7191c'
 
 # Draw in reverse order so that the early ones are on top
 for i, res in enumerate(sorted_results):
-    y = n_studies - 1 - i  # Преобразуем порядок (0 - нижняя точка)
+    y = n_studies - 1 - i  # Transform order (0 is the lowest point)
     
-    if i == n_studies-1:  # Общий OR (будет внизу)
+    if i == n_studies-1:  # Total OR (to come at the bottom)
         ax_plot.plot([res['ci_low'], res['ci_high']], [y, y],
                    color=diamond_color, linewidth=2)
         ax_plot.plot(res['or'], y, 'D', markersize=16, color=diamond_color)
