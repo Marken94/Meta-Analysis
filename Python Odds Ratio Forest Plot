@@ -1,0 +1,173 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import statsmodels.api as sm
+from scipy.stats.distributions import chi2
+
+def calculate_or(a, b, c, d):
+    """Calculate OR и CI 95%"""
+    table = np.array([[a, b - a], [c, d - c]])
+    res = sm.stats.Table2x2(table)
+    or_val = res.oddsratio
+    ci = res.oddsratio_confint()
+    log_or = np.log(or_val)
+    se = res.log_oddsratio_se
+    return or_val, ci[0], ci[1], log_or, se
+
+# Data for analysis
+data = [
+    ("Laz., 2004", (18, 31, 0, 26)),
+    ("Cost., 2005", (5, 31, 6, 55)),
+    ("Laz., 2007", (12, 26, 1, 20)),
+    ("Bour., 2011", (13, 114, 5, 164)),
+    ("Laz., 2011", (12, 25, 4, 24)),
+    ("Nom., 2014", (9, 43, 7, 47)),
+   ("Teix., 2014", (4, 113, 6, 204)),
+    ("Mas., 2014", (35, 148, 136, 541)),
+    ("Pis., 2015", (11, 55, 0, 18)),
+    ("Bour., 2015", (48, 283, 39, 314)),
+    ("Mos., 2020", (27, 55, 20, 95)),
+   ("Azh., 2020", (17, 63, 21, 77)),
+    ("Laz., 2021", (61, 612, 417, 6727)),
+    ("Vil., 2021", (2, 46, 1, 99)),
+    ("Gam., 2024", (26, 101, 4, 66))
+]
+
+# Calculate the indicators for each study
+results = []
+for name, (a, b, c, d) in data:
+    or_val, ci_low, ci_high, log_or, se = calculate_or(a, b, c, d)
+    results.append({
+        'name': name,
+        'or': or_val,
+        'ci_low': ci_low,
+        'ci_high': ci_high,
+        'log_or': log_or,
+        'se': se,
+        'a': a, 'b': b, 'c': c, 'd': d
+    })
+
+# Meta-analysis (random effects using the DerSimonian-Laird method)
+def random_effects_meta(log_or, se):
+    weights_fe = 1 / (se**2)
+    pooled_fe = np.sum(weights_fe * log_or) / np.sum(weights_fe)
+    Q = np.sum(weights_fe * (log_or - pooled_fe)**2)
+    df = len(log_or) - 1
+    C = np.sum(weights_fe) - np.sum(weights_fe**2) / np.sum(weights_fe)
+    tau2 = max(0, (Q - df) / C)
+    weights_re = 1 / (se**2 + tau2)
+    pooled_re = np.sum(weights_re * log_or) / np.sum(weights_re)
+    se_re = 1 / np.sqrt(np.sum(weights_re))
+    return pooled_re, se_re, tau2, Q, df
+
+log_or = np.array([r['log_or'] for r in results])
+se = np.array([r['se'] for r in results])
+
+combined_log_or, combined_se, tau2, Q, df = random_effects_meta(log_or, se)
+combined_or = np.exp(combined_log_or)
+combined_ci = (
+    np.exp(combined_log_or - 1.96 * combined_se),
+    np.exp(combined_log_or + 1.96 * combined_se)
+)
+
+# Add the combined result
+total_pos = sum(r['b'] for r in results)
+total_neg = sum(r['d'] for r in results)
+total_pos_events = sum(r['a'] for r in results)
+total_neg_events = sum(r['c'] for r in results)
+
+results.append({
+    'name': "Total (95% CI)",
+    'or': combined_or,
+    'ci_low': combined_ci[0],
+    'ci_high': combined_ci[1],
+    'log_or': combined_log_or,
+    'se': combined_se,
+    'a': total_pos_events, 'b': total_pos,
+    'c': total_neg_events, 'd': total_neg,
+    'tau2': tau2
+})
+
+# Sort the studies by year of publication (extract the year from the title)
+def extract_year(name):
+    year_part = name.split(', ')[-1].split(')')[0]
+    return int(year_part) if year_part.isdigit() else 0
+
+sorted_results = sorted(results[:-1], key=lambda x: extract_year(x['name'])) + [results[-1]]
+
+# Create a figure with two subplots
+fig, (ax_table, ax_plot) = plt.subplots(1, 2, figsize=(20, 12), 
+                                      gridspec_kw={'width_ratios': [1.5, 1]})
+ax_table.axis('off')
+
+# Sort from early to late + total at the end
+sorted_results = sorted(results[:-1], key=lambda x: extract_year(x['name'])) + [results[-1]]
+n_studies = len(sorted_results)
+
+# Create data for the table (in direct order - earliest on top)
+col_labels = ['Study', 'Ro+ Events', 'Ro+ Total', 'Ro- Events', 'Ro- Total', 'OR [95% CI]']
+cell_text = []
+for res in sorted_results:
+    cell_text.append([
+        res['name'],
+        str(res['a']),
+        str(res['b']),
+        str(res['c']),
+        str(res['d']),
+        f"{res['or']:.2f} [{res['ci_low']:.2f}, {res['ci_high']:.2f}]"
+    ])
+
+# Adding a table with a larger font
+table = ax_table.table(cellText=cell_text,
+                     colLabels=col_labels,
+                     cellLoc='center',
+                     loc='center',
+                     edges='open')
+table.auto_set_font_size(False)
+table.set_fontsize(18)  # Увеличили размер шрифта
+
+# Table formatting
+for key, cell in table.get_celld().items():
+    cell.set_height(0.06)  # Увеличили высоту строк
+    if key[0] == 0:  # Заголовки
+        cell.set_text_props(weight='bold', size=18)
+    else:  # Данные
+        cell.set_text_props(weight='bold')  # Весь текст жирный
+
+# Customize the graph (the order corresponds to the table - the earliest on top)
+y_pos = np.arange(n_studies)  # Позиции снизу вверх (0 - нижняя строка)
+main_color = '#2b83ba'
+diamond_color = '#d7191c'
+
+# Draw in reverse order so that the early ones are on top
+for i, res in enumerate(sorted_results):
+    y = n_studies - 1 - i  # Преобразуем порядок (0 - нижняя точка)
+    
+    if i == n_studies-1:  # Общий OR (будет внизу)
+        ax_plot.plot([res['ci_low'], res['ci_high']], [y, y],
+                   color=diamond_color, linewidth=2)
+        ax_plot.plot(res['or'], y, 'D', markersize=16, color=diamond_color)
+    else:
+        ax_plot.plot([res['ci_low'], res['ci_high']], [y, y],
+                   color=main_color, linewidth=2)
+        ax_plot.plot(res['or'], y, 'o', markersize=16, color=main_color)
+
+# Schedule design
+ax_plot.axvline(x=1, color='#666666', linestyle='--')
+ax_plot.set_yticks(y_pos)
+ax_plot.set_yticklabels([])
+ax_plot.set_xlabel('Odds Ratio (Random, 95% CI)', fontsize=18, weight='bold')
+ax_plot.set_xscale('log')
+ax_plot.set_xlim(0.1, 100)
+ax_plot.grid(axis='x', linestyle=':')
+ax_plot.tick_params(axis='x', labelsize=18)
+
+# Heterogeneity statistics (under the table)
+stats_text = (f"Heterogeneity: Tau² = {tau2:.2f}; Chi² = {Q:.2f}, df = {df} (P = {chi2.sf(Q, df):.3f}); I² = {100*tau2/(tau2+np.mean(se**2)):.0f}%\n"
+             f"Test for overall effect: Z = {combined_log_or/combined_se:.2f} (P = {2*(1 - chi2.cdf((combined_log_or/combined_se)**2, 1)):.3f})")
+
+plt.figtext(0.1, 0.05, stats_text, fontsize=20, ha='left', weight='bold')
+
+plt.tight_layout()
+plt.subplots_adjust(bottom=0.15, wspace=0.1, top=0.95)
+plt.show()
+
